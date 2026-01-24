@@ -11,6 +11,7 @@ A Python implementation of a causal marketing mix model for predicting conversio
 - **Hyperparameter Optimization**: Automatically tune adstock decay and saturation parameters
 - **What-If Analysis**: Answer counterfactual questions about budget changes
 - **Budget Optimization**: Find optimal allocation of budget across channels
+- **ROAS-Constrained Optimization**: Find ideal budget to maximize conversions while achieving target ROAS (NEW!)
 
 ## Installation
 
@@ -143,6 +144,31 @@ Given historical ad budget and ROAS data, predict future conversions.
 ### 5. **Causal Impact**
 "What is the true causal effect of our marketing spend on conversions?"
 
+### 6. **ROAS-Constrained Budget Optimization** (NEW!)
+"What's the ideal budget to maximize conversions while achieving a target ROAS of 3.5?"
+
+**Quick Example:**
+```python
+from roas_optimizer import ROASConstrainedOptimizer
+
+# Initialize optimizer
+optimizer = ROASConstrainedOptimizer(model, conversion_value=100.0)
+
+# Find optimal budget for ROAS = 3.5
+result = optimizer.optimize_for_target_roas(
+    target_roas=3.5,
+    baseline_X=X_test,
+    budget_column='ad_budget',
+    budget_range=(1000, 20000)
+)
+
+print(f"Optimal Budget: ${result['optimal_budget']:,.2f}")
+print(f"Expected Conversions: {result['predicted_conversions']:.0f}")
+print(f"Expected ROAS: {result['predicted_roas']:.2f}")
+```
+
+**See full guide**: [ROAS_OPTIMIZATION_GUIDE.md](ROAS_OPTIMIZATION_GUIDE.md)
+
 ## API Reference
 
 ### MarketingMixModel
@@ -193,6 +219,8 @@ MarketingMixModel(
 
 ## Examples
 
+### Standard Examples
+
 Run the comprehensive examples:
 
 ```bash
@@ -206,6 +234,23 @@ This will:
 4. Estimate causal effects
 5. Optimize budget allocation
 6. Generate visualization plots
+
+### ROAS-Constrained Optimization (NEW!)
+
+Find optimal budget to maximize conversions while achieving target ROAS:
+
+```bash
+python example_roas_optimization.py
+```
+
+This will:
+1. Train a marketing mix model on your data
+2. Find the ideal budget for target ROAS = 3.5
+3. Generate budget recommendations for multiple ROAS targets
+4. Create comprehensive visualizations
+5. Provide actionable recommendations
+
+**See the complete guide**: [ROAS_OPTIMIZATION_GUIDE.md](ROAS_OPTIMIZATION_GUIDE.md)
 
 ## Data Requirements
 
