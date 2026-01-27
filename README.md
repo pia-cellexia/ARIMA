@@ -12,6 +12,7 @@ A Python implementation of a causal marketing mix model for predicting conversio
 - **What-If Analysis**: Answer counterfactual questions about budget changes
 - **Budget Optimization**: Find optimal allocation of budget across channels
 - **ROAS-Constrained Optimization**: Find ideal budget to maximize conversions while achieving target ROAS (NEW!)
+- **Attribution-Aware Forecasting**: Handle Google Ads attribution windows for accurate inventory forecasting (NEW!)
 
 ## Installation
 
@@ -169,6 +170,56 @@ print(f"Expected ROAS: {result['predicted_roas']:.2f}")
 
 **See full guide**: [ROAS_OPTIMIZATION_GUIDE.md](ROAS_OPTIMIZATION_GUIDE.md)
 
+### 7. **Google Ads Inventory Forecasting with Attribution Windows** (NEW!)
+"How do I forecast inventory needs when Google Ads attributes conversions back to the ad impression date?"
+
+**The Challenge**: In Google Ads, if a user sees an ad on January 1 and purchases on February 13, the conversion is attributed to January 1, not February 13. This makes forecasting tricky because recent dates have incomplete conversion data.
+
+**Quick Example:**
+```python
+from inventory_forecaster import AttributionAwareForecaster
+
+# Initialize forecaster with attribution window
+forecaster = AttributionAwareForecaster(
+    model=model,
+    attribution_window_days=30,  # Google Ads typical window
+    conversion_value=100.0
+)
+
+# Forecast inventory for next 30 days
+future_budgets = pd.DataFrame({
+    'date': pd.date_range('2024-02-01', periods=30),
+    'ad_budget': 5463.06  # Your planned daily budget
+})
+
+inventory_forecast = forecaster.forecast_inventory_needs(
+    future_budgets=future_budgets,
+    baseline_features=X_train,
+    safety_stock_pct=0.2  # 20% safety buffer
+)
+
+print(f"Total inventory needed: {inventory_forecast['inventory_needed'].sum():.0f}")
+print(f"Expected NC ROAS: {inventory_forecast['roas_predicted'].mean():.2f}")
+
+# Visualize
+forecaster.plot_inventory_forecast(inventory_forecast, save_path='inventory_forecast.png')
+```
+
+**Key Features:**
+- ✅ Handles attribution windows (conversions attributed back to ad date)
+- ✅ Identifies mature vs incomplete conversion data
+- ✅ Forecasts future inventory needs with safety stock
+- ✅ Optimizes budget for target NC ROAS and inventory targets
+- ✅ Accounts for conversion maturity (% of conversions attributed)
+
+**Perfect for:**
+- Google Ads search campaigns
+- Inventory forecasting and production planning
+- Budget optimization with attribution lag
+- Understanding true campaign performance
+
+**See full guide**: [INVENTORY_FORECASTING_GUIDE.md](INVENTORY_FORECASTING_GUIDE.md)
+
 ## API Reference
 
 ### MarketingMixModel
@@ -251,6 +302,25 @@ This will:
 5. Provide actionable recommendations
 
 **See the complete guide**: [ROAS_OPTIMIZATION_GUIDE.md](ROAS_OPTIMIZATION_GUIDE.md)
+
+### Inventory Forecasting with Attribution Windows (NEW!)
+
+Forecast inventory needs for Google Ads campaigns where conversions are back-attributed:
+
+```bash
+python example_inventory_forecast.py
+```
+
+This will:
+1. Handle Google Ads attribution windows (conversions attributed to ad date)
+2. Separate mature data (complete) from incomplete data (recent dates)
+3. Train model on mature data only for accuracy
+4. Forecast inventory needs for next 30 days
+5. Find optimal budget for NC ROAS = 3.5
+6. Account for conversion maturity and attribution lag
+7. Generate inventory planning visualizations
+
+**See the complete guide**: [INVENTORY_FORECASTING_GUIDE.md](INVENTORY_FORECASTING_GUIDE.md)
 
 ## Data Requirements
 
