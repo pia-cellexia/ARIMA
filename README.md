@@ -13,6 +13,7 @@ A Python implementation of a causal marketing mix model for predicting conversio
 - **Budget Optimization**: Find optimal allocation of budget across channels
 - **ROAS-Constrained Optimization**: Find ideal budget to maximize conversions while achieving target ROAS (NEW!)
 - **Attribution-Aware Forecasting**: Handle Google Ads attribution windows for accurate inventory forecasting (NEW!)
+- **Lifetime Attribution Model**: Specialized model for lifetime attribution windows (conversions attributed forever) (NEW!)
 
 ## Installation
 
@@ -220,6 +221,84 @@ forecaster.plot_inventory_forecast(inventory_forecast, save_path='inventory_fore
 
 **See full guide**: [INVENTORY_FORECASTING_GUIDE.md](INVENTORY_FORECASTING_GUIDE.md)
 
+### 8. **Lifetime Attribution Model** (NEW!)
+"Our Google Ads campaigns have LIFETIME attribution - conversions are attributed years after the ad impression. How do we model this?"
+
+**The Challenge**: With lifetime attribution, if a user sees an ad in January 2023 and purchases in December 2024, the conversion is attributed to January 2023. This means:
+- Recent data is EXTREMELY incomplete (conversions still coming in for years)
+- Need cohort-based modeling to understand conversion curves
+- Only very old data (6+ months) has reasonably complete conversions
+- Forecasting requires understanding conversion timing over months/years
+
+**Quick Example:**
+```python
+from lifetime_attribution_model import LifetimeAttributionModel
+
+# Initialize model
+model = LifetimeAttributionModel(
+    conversion_value=100.0,
+    has_actual_spend=False  # Using budget only (or True if you have actual spend)
+)
+
+# Train on data at least 180 days old (recent data too incomplete!)
+trained_model = model.train_model(
+    df,
+    min_days_old=180,
+    use_mature_estimates=True,
+    optimize_params=True
+)
+
+# This automatically:
+# 1. Fits conversion curve (how conversions accumulate over time)
+# 2. Estimates mature conversions for recent dates
+# 3. Trains model on old, complete data
+# 4. Optimizes hyperparameters
+
+# Find optimal budget for NC ROAS = 3.5
+from roas_optimizer import ROASConstrainedOptimizer
+
+X_train, _ = model.prepare_training_data(df, min_days_old=180)
+optimizer = ROASConstrainedOptimizer(trained_model, 100.0)
+
+result = optimizer.optimize_for_target_roas(3.5, X_train, budget_range=(2000, 10000))
+
+print(f"Optimal Budget: ${result['optimal_budget']:,.2f}")
+print(f"Expected Conversions (lifetime attributed): {result['predicted_conversions']:.0f}")
+print(f"Expected NC ROAS: {result['predicted_roas']:.2f}")
+```
+
+**Key Features:**
+- ✅ Handles lifetime attribution (no time limit on conversions)
+- ✅ Fits conversion curves (power law, exponential, logistic)
+- ✅ Estimates conversion maturity (% of conversions attributed so far)
+- ✅ Trains only on old data (180+ days old for completeness)
+- ✅ Supports budget-only OR budget+actual spend modeling
+- ✅ Cohort-based forecasting with conversion timing
+
+**Conversion Maturity Example:**
+```
+Days Since Ad  →  Maturity
+7 days         →  43% (57% still coming!)
+30 days        →  55% (45% still coming!)
+90 days        →  67% (33% still coming!)
+180 days       →  75% (25% still coming!)
+365 days       →  84% (16% still coming!)
+730 days       →  95% (nearly complete)
+```
+
+**Budget vs Actual Spend:**
+- **Budget**: What you SET in Google Ads (your control variable)
+- **Actual Spend**: What Google actually SPENT (can differ due to competition, bid adjustments)
+- Model works with budget-only, but actual spend (if available) improves accuracy by 10-20%
+
+**Perfect for:**
+- Google Ads with lifetime attribution windows
+- Long-tail conversion patterns (purchases happening months/years later)
+- Subscription/SaaS businesses with long consideration periods
+- High-value products with long sales cycles
+
+**See full guide**: [LIFETIME_ATTRIBUTION_GUIDE.md](LIFETIME_ATTRIBUTION_GUIDE.md)
+
 ## API Reference
 
 ### MarketingMixModel
@@ -321,6 +400,31 @@ This will:
 7. Generate inventory planning visualizations
 
 **See the complete guide**: [INVENTORY_FORECASTING_GUIDE.md](INVENTORY_FORECASTING_GUIDE.md)
+
+### Lifetime Attribution Model (NEW!)
+
+Model Google Ads campaigns with LIFETIME attribution windows:
+
+```bash
+python example_lifetime_attribution.py
+```
+
+This will:
+1. Handle lifetime attribution (conversions attributed forever, not just 30-90 days)
+2. Fit conversion curves to understand how conversions accumulate over time
+3. Estimate conversion maturity (% of conversions attributed so far)
+4. Train model on old data only (180+ days old for completeness)
+5. Find optimal budget for NC ROAS = 3.5
+6. Compare budget-only vs budget+actual spend models
+7. Provide recommendations accounting for lifetime attribution effects
+
+**Key difference from standard attribution:**
+- Standard (30-90 days): Recent 30 days data is 80-90% complete
+- Lifetime: Recent 30 days data is only 50-60% complete!
+- Need to train on much older data (180+ days vs 30-90 days)
+- Forecasting is more complex (conversions come in over years)
+
+**See the complete guide**: [LIFETIME_ATTRIBUTION_GUIDE.md](LIFETIME_ATTRIBUTION_GUIDE.md)
 
 ## Data Requirements
 
