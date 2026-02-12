@@ -263,78 +263,243 @@ def analyze_your_data(file_path: str):
         return
 
     # =========================================================================
-    # STEP 6: Visualize Results
+    # STEP 6: Forecast Next 3 Months with Recommended Budget
     # =========================================================================
-    print("\n\n📊 STEP 6: Visualizing Your Data")
+    print("\n\n📅 STEP 6: 3-Month Purchase Forecast with Recommended Budget")
     print("-" * 80)
 
-    # Create comprehensive visualization
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    print(f"\n  Creating 90-day forecast starting from {reference_date.date() + timedelta(days=1)}...")
+    print(f"  Using recommended daily spend: ${result['optimal_budget']:,.2f}")
+
+    # Create future dates (90 days = ~3 months)
+    future_start_date = reference_date + timedelta(days=1)
+    future_dates = pd.date_range(start=future_start_date, periods=90, freq='D')
+
+    # Create future budget dataframe
+    future_df = pd.DataFrame({
+        'date': future_dates,
+        'cost': result['optimal_budget'],  # Use optimal spend
+        'ROAS': X_train['ROAS'].mean()  # Use average ROAS as baseline
+    })
+
+    # Prepare features for prediction
+    X_forecast = future_df[['cost', 'ROAS']].copy()
+
+    # Predict conversions (these are attributed conversions)
+    predictions = trained_model.predict(X_forecast)
+    future_df['conversions_attributed'] = predictions
+    future_df['revenue'] = predictions * conversion_value
+    future_df['profit'] = future_df['revenue'] - future_df['cost']
+
+    # Add month information
+    future_df['month'] = future_df['date'].dt.to_period('M')
+    future_df['month_name'] = future_df['date'].dt.strftime('%B %Y')
+
+    # Aggregate by month
+    monthly_forecast = future_df.groupby('month_name').agg({
+        'cost': 'sum',
+        'conversions_attributed': 'sum',
+        'revenue': 'sum',
+        'profit': 'sum'
+    }).reset_index()
+
+    monthly_forecast['roas'] = monthly_forecast['revenue'] / monthly_forecast['cost']
+    monthly_forecast['days'] = future_df.groupby('month_name').size().values
+
+    print(f"\n  {'='*70}")
+    print(f"  📊 3-MONTH FORECAST WITH RECOMMENDED BUDGET")
+    print(f"  {'='*70}")
+    print(f"\n  Daily Budget: ${recommended_budget:,.2f}")
+    print(f"  Daily Spend: ${result['optimal_budget']:,.2f}")
+    print(f"  Target NC ROAS: 3.5\n")
+
+    for idx, row in monthly_forecast.iterrows():
+        print(f"  {row['month_name']}:")
+        print(f"    Days in month: {row['days']}")
+        print(f"    Total spend: ${row['cost']:,.2f}")
+        print(f"    Conversions (attributed): {row['conversions_attributed']:.0f}")
+        print(f"    Revenue: ${row['revenue']:,.2f}")
+        print(f"    Profit: ${row['profit']:,.2f}")
+        print(f"    NC ROAS: {row['roas']:.2f}")
+        print()
+
+    # Calculate when purchases actually occur (vs attributed)
+    # With lifetime attribution, conversions attributed to future dates
+    # will actually occur over months/years
+    # For inventory planning, we need to estimate WHEN purchases happen
+
+    print(f"  ⏱️  LIFETIME ATTRIBUTION NOTE:")
+    print(f"  The numbers above show conversions ATTRIBUTED to each month.")
+    print(f"  With lifetime attribution, these purchases happen over time:")
+    print(f"\n  Purchase Timing Estimate (when purchases actually occur):")
+
+    # Approximate distribution: 40% in first 30 days, 30% in next 60 days, 30% over months/years
+    immediate_pct = 0.40  # 40% of purchases happen relatively soon
+    medium_pct = 0.30     # 30% happen in next 2-3 months
+    longterm_pct = 0.30   # 30% happen over many months/years
+
+    for idx, row in monthly_forecast.iterrows():
+        attributed_conv = row['conversions_attributed']
+        immediate_purchases = attributed_conv * immediate_pct
+        medium_purchases = attributed_conv * medium_pct
+        longterm_purchases = attributed_conv * longterm_pct
+
+        print(f"\n  {row['month_name']} attributed conversions: {attributed_conv:.0f}")
+        print(f"    ~{immediate_purchases:.0f} purchases in first 30 days (~{immediate_pct*100:.0f}%)")
+        print(f"    ~{medium_purchases:.0f} purchases in next 60-90 days (~{medium_pct*100:.0f}%)")
+        print(f"    ~{longterm_purchases:.0f} purchases over many months (~{longterm_pct*100:.0f}%)")
+
+    # Total summary
+    total_spend = monthly_forecast['cost'].sum()
+    total_conversions = monthly_forecast['conversions_attributed'].sum()
+    total_revenue = monthly_forecast['revenue'].sum()
+    total_profit = monthly_forecast['profit'].sum()
+    avg_roas = total_revenue / total_spend
+
+    print(f"\n  {'='*70}")
+    print(f"  📊 3-MONTH TOTALS:")
+    print(f"  {'='*70}")
+    print(f"  Total spend: ${total_spend:,.2f}")
+    print(f"  Total conversions (attributed): {total_conversions:.0f}")
+    print(f"  Total revenue: ${total_revenue:,.2f}")
+    print(f"  Total profit: ${total_profit:,.2f}")
+    print(f"  Average NC ROAS: {avg_roas:.2f}")
+    print(f"  {'='*70}\n")
+
+    # Inventory recommendation
+    immediate_inventory = total_conversions * immediate_pct * 1.2  # 20% safety buffer
+
+    print(f"  📦 INVENTORY RECOMMENDATION:")
+    print(f"  For next 3 months, prepare approximately:")
+    print(f"  - {immediate_inventory:.0f} units for immediate fulfillment (first 30 days)")
+    print(f"    (Includes 20% safety buffer)")
+    print(f"  - Additional {total_conversions * medium_pct:.0f} units over next 60-90 days")
+    print(f"  - Remaining {total_conversions * longterm_pct:.0f} units will be needed over longer term")
+    print(f"\n  Total attributed conversions: {total_conversions:.0f} units over 3 months")
+
+    # =========================================================================
+    # STEP 7: Visualize Results
+    # =========================================================================
+    print("\n\n📊 STEP 7: Visualizing Your Data")
+    print("-" * 80)
+
+    # Create comprehensive visualization (including forecast)
+    fig = plt.figure(figsize=(20, 14))
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+
+    axes = [
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[0, 2]),
+        fig.add_subplot(gs[1, 0]),
+        fig.add_subplot(gs[1, 1]),
+        fig.add_subplot(gs[1, 2]),
+        fig.add_subplot(gs[2, :])  # Full width for forecast
+    ]
 
     # Plot 1: Budget vs Spend over time
-    ax1 = axes[0, 0]
+    ax1 = axes[0]
     ax1.plot(df['date'], df['ad_budget'], label='Budget', linewidth=2, alpha=0.7)
     ax1.plot(df['date'], df['cost'], label='Actual Spend', linewidth=2, alpha=0.7)
-    ax1.set_xlabel('Date')
-    ax1.set_ylabel('Amount ($)')
-    ax1.set_title('Budget vs Actual Spend Over Time')
+    ax1.set_xlabel('Date', fontsize=10)
+    ax1.set_ylabel('Amount ($)', fontsize=10)
+    ax1.set_title('Budget vs Actual Spend Over Time', fontsize=11, fontweight='bold')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Plot 2: Conversions over time (with maturity note)
-    ax2 = axes[0, 1]
+    ax2 = axes[1]
     ax2.plot(df['date'], df['conversions'], linewidth=2, color='#2E86AB')
-    ax2.set_xlabel('Date')
-    ax2.set_ylabel('Conversions')
-    ax2.set_title('Conversions Over Time (Incomplete - Still Accumulating!)')
+    ax2.set_xlabel('Date', fontsize=10)
+    ax2.set_ylabel('Conversions', fontsize=10)
+    ax2.set_title('Conversions Over Time (Incomplete - Still Accumulating!)', fontsize=11, fontweight='bold')
     ax2.grid(True, alpha=0.3)
     plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Plot 3: ROAS over time
-    ax3 = axes[0, 2]
+    ax3 = axes[2]
     ax3.plot(df['date'], df['ROAS'], linewidth=2, color='#A23B72')
     ax3.axhline(3.5, color='red', linestyle='--', label='Target ROAS = 3.5', linewidth=2)
-    ax3.set_xlabel('Date')
-    ax3.set_ylabel('ROAS')
-    ax3.set_title('ROAS Over Time')
+    ax3.set_xlabel('Date', fontsize=10)
+    ax3.set_ylabel('ROAS', fontsize=10)
+    ax3.set_title('ROAS Over Time', fontsize=11, fontweight='bold')
     ax3.legend()
     ax3.grid(True, alpha=0.3)
     plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Plot 4: Spend efficiency
-    ax4 = axes[1, 0]
+    ax4 = axes[3]
     spend_efficiency = (df['cost'] / df['ad_budget']).values
     ax4.plot(df['date'], spend_efficiency * 100, linewidth=2, color='#F18F01')
     ax4.axhline(100, color='black', linestyle='--', alpha=0.5, linewidth=1)
-    ax4.set_xlabel('Date')
-    ax4.set_ylabel('Spend Efficiency (%)')
-    ax4.set_title('Budget Utilization (Spend / Budget %)')
+    ax4.set_xlabel('Date', fontsize=10)
+    ax4.set_ylabel('Spend Efficiency (%)', fontsize=10)
+    ax4.set_title('Budget Utilization (Spend / Budget %)', fontsize=11, fontweight='bold')
     ax4.grid(True, alpha=0.3)
     plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Plot 5: Conversions vs Spend
-    ax5 = axes[1, 1]
-    ax5.scatter(df['cost'], df['conversions'], alpha=0.6, s=50)
-    ax5.set_xlabel('Daily Spend ($)')
-    ax5.set_ylabel('Daily Conversions (Incomplete)')
-    ax5.set_title('Conversions vs Spend')
+    ax5 = axes[4]
+    ax5.scatter(df['cost'], df['conversions'], alpha=0.6, s=50, color='#2E86AB')
+    ax5.set_xlabel('Daily Spend ($)', fontsize=10)
+    ax5.set_ylabel('Daily Conversions (Incomplete)', fontsize=10)
+    ax5.set_title('Conversions vs Spend', fontsize=11, fontweight='bold')
     ax5.grid(True, alpha=0.3)
 
     # Plot 6: Data maturity
-    ax6 = axes[1, 2]
-    ax6.scatter(df['days_since_ad'], df['estimated_maturity'] * 100, alpha=0.6, s=50, c=df['conversions'])
-    ax6.set_xlabel('Days Since Ad Impression')
-    ax6.set_ylabel('Estimated Maturity (%)')
-    ax6.set_title('Data Completeness by Age')
+    ax6 = axes[5]
+    scatter = ax6.scatter(df['days_since_ad'], df['estimated_maturity'] * 100,
+                         alpha=0.6, s=50, c=df['conversions'], cmap='viridis')
+    ax6.set_xlabel('Days Since Ad Impression', fontsize=10)
+    ax6.set_ylabel('Estimated Maturity (%)', fontsize=10)
+    ax6.set_title('Data Completeness by Age', fontsize=11, fontweight='bold')
     ax6.grid(True, alpha=0.3)
+    cbar = plt.colorbar(scatter, ax=ax6)
+    cbar.set_label('Conversions', fontsize=9)
+
+    # Plot 7: 3-Month Forecast (full width)
+    ax7 = axes[6]
+
+    # Historical data
+    ax7.plot(df['date'], df['conversions'], linewidth=2, color='#2E86AB',
+             label='Historical (Incomplete)', alpha=0.7)
+
+    # Forecast data
+    ax7.plot(future_df['date'], future_df['conversions_attributed'],
+             linewidth=2.5, color='#F18F01', label='Forecast (Attributed)', linestyle='--')
+
+    # Vertical line separating historical and forecast
+    ax7.axvline(reference_date, color='red', linestyle=':', linewidth=2, alpha=0.5)
+    ax7.text(reference_date, ax7.get_ylim()[1] * 0.95, 'Today',
+             ha='right', va='top', fontsize=10, color='red')
+
+    # Add monthly markers for forecast
+    for month_name in monthly_forecast['month_name'].unique():
+        month_data = future_df[future_df['month_name'] == month_name]
+        month_start = month_data['date'].min()
+        month_conversions = monthly_forecast[monthly_forecast['month_name'] == month_name]['conversions_attributed'].values[0]
+
+        ax7.axvline(month_start, color='gray', linestyle=':', linewidth=1, alpha=0.3)
+        ax7.text(month_start + timedelta(days=15), ax7.get_ylim()[1] * 0.85,
+                f"{month_name.split()[0][:3]}\n{month_conversions:.0f} conv",
+                ha='center', va='top', fontsize=9,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.3))
+
+    ax7.set_xlabel('Date', fontsize=11)
+    ax7.set_ylabel('Daily Conversions (Attributed)', fontsize=11)
+    ax7.set_title('Historical Performance + 3-Month Forecast with Recommended Budget',
+                  fontsize=12, fontweight='bold')
+    ax7.legend(loc='upper left')
+    ax7.grid(True, alpha=0.3)
+    plt.setp(ax7.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     plt.tight_layout()
     plt.savefig('your_data_analysis.png', dpi=150, bbox_inches='tight')
     print(f"\n✓ Saved visualization to 'your_data_analysis.png'")
 
     # =========================================================================
-    # STEP 7: Recommendations and Next Steps
+    # STEP 8: Recommendations and Next Steps
     # =========================================================================
     print("\n\n" + "="*80)
     print("  📋 RECOMMENDATIONS & NEXT STEPS")
@@ -348,15 +513,30 @@ def analyze_your_data(file_path: str):
      - Based on best available data (limited by 121 days)
      - Accounts for {avg_spend_efficiency*100:.0f}% spend efficiency
 
-  2. MONITOR CLOSELY:
+  2. 3-MONTH FORECAST (with recommended budget):
+     - Expected spend: ${total_spend:,.2f}
+     - Expected conversions: {total_conversions:.0f} (attributed)
+     - Expected revenue: ${total_revenue:,.2f}
+     - Expected profit: ${total_profit:,.2f}
+     - Expected NC ROAS: {avg_roas:.2f}
+
+  3. INVENTORY PLANNING:
+     - Prepare ~{immediate_inventory:.0f} units for immediate fulfillment (30 days)
+     - Additional ~{total_conversions * medium_pct:.0f} units over next 60-90 days
+     - Remaining ~{total_conversions * longterm_pct:.0f} units over longer term
+     - Total: {total_conversions:.0f} attributed conversions over 3 months
+
+  4. MONITOR CLOSELY:
      - Track actual spend daily (not just budget)
      - Watch NC ROAS (currently {current_avg_roas:.2f})
      - Conversions will grow over time (lifetime attribution!)
+     - Compare monthly actuals to forecast
 
-  3. BE PATIENT:
+  5. BE PATIENT:
      - Don't judge results after 30 days (way too early!)
      - Wait 90-180 days to see true impact
      - Remember: conversions attributed over months/years
+     - Forecast shows attributed conversions, not when purchases occur
 
   ⚠️  DATA LIMITATIONS (IMPORTANT!):
 
@@ -440,10 +620,30 @@ def analyze_your_data(file_path: str):
     print("="*80)
     print("\n✅ Analysis complete!")
     print(f"\n📁 Generated files:")
-    print(f"   - your_data_analysis.png (comprehensive visualization)")
+    print(f"   - your_data_analysis.png (comprehensive visualization with 3-month forecast)")
     print(f"\n📖 For more details, see:")
     print(f"   - LIFETIME_ATTRIBUTION_GUIDE.md")
     print(f"   - ROAS_OPTIMIZATION_GUIDE.md")
+
+    # Save forecast to CSV for easy reference
+    forecast_export = monthly_forecast.copy()
+    forecast_export['daily_budget'] = recommended_budget
+    forecast_export['daily_spend'] = result['optimal_budget']
+    forecast_export = forecast_export[['month_name', 'days', 'daily_budget', 'daily_spend',
+                                       'cost', 'conversions_attributed', 'revenue', 'profit', 'roas']]
+    forecast_export.to_csv('3_month_forecast.csv', index=False)
+    print(f"\n📊 3-Month Forecast Details:")
+    print(f"   - 3_month_forecast.csv (monthly breakdown)")
+    print(f"\n   Monthly Forecast Summary:")
+    print(forecast_export.to_string(index=False))
+
+    return {
+        'recommended_budget': recommended_budget,
+        'recommended_spend': result['optimal_budget'],
+        'monthly_forecast': monthly_forecast,
+        'daily_forecast': future_df,
+        'optimization_result': result
+    }
 
 
 if __name__ == '__main__':
@@ -476,7 +676,13 @@ if __name__ == '__main__':
 
   5. Review results and recommendations carefully
 
-  6. Remember: With only 121 days of data, predictions are indicative!
+  6. Get 3-month forecast with recommended budget:
+     - Monthly purchase predictions
+     - Inventory requirements
+     - Revenue and profit forecasts
+     - Exported to 3_month_forecast.csv
+
+  7. Remember: With only 121 days of data, predictions are indicative!
     """)
     print("="*80)
 
