@@ -228,10 +228,8 @@ def analyze_your_data(file_path: str):
         print(f"  🎯 OPTIMAL SPEND RECOMMENDATION")
         print(f"{'='*60}")
         print(f"  Recommended Daily Spend: ${result['optimal_budget']:,.2f}")
-        print(f"  Expected Conversions: {result['predicted_conversions']:.1f} (lifetime attributed)")
+        print(f"  Expected Conversions: {result['predicted_conversions']:.1f} conversions/day")
         print(f"  Expected NC ROAS: {result['predicted_roas']:.2f}")
-        print(f"  Expected Revenue: ${result['revenue']:,.2f}")
-        print(f"  Expected Profit: ${result['profit']:,.2f}")
         print(f"  Optimization Success: {result['optimization_success']}")
         print(f"{'='*60}\n")
 
@@ -336,26 +334,17 @@ def analyze_your_data(file_path: str):
     print(f"  - (These will grow to mature level over time with lifetime attribution)")
 
     future_df['new_conversions'] = predictions_observed  # Use observed, not mature
-    future_df['revenue_from_new_ads'] = predictions_observed * conversion_value
-    future_df['profit_from_new_ads'] = future_df['revenue_from_new_ads'] - future_df['cost']
 
-    # Add month information
+    # Add month information for summary
     future_df['month'] = future_df['date'].dt.to_period('M')
     future_df['month_name'] = future_df['date'].dt.strftime('%B %Y')
 
-    # Aggregate by month
-    monthly_forecast = future_df.groupby('month_name').agg({
-        'cost': 'sum',
-        'new_conversions': 'sum',
-        'revenue_from_new_ads': 'sum',
-        'profit_from_new_ads': 'sum'
-    }).reset_index()
-
-    monthly_forecast['roas'] = monthly_forecast['revenue_from_new_ads'] / monthly_forecast['cost']
-    monthly_forecast['days'] = future_df.groupby('month_name').size().values
+    # Calculate totals for summary
+    total_spend = future_df['cost'].sum()
+    total_new_conversions = future_df['new_conversions'].sum()
 
     print(f"\n  {'='*70}")
-    print(f"  📊 3-MONTH FORECAST WITH RECOMMENDED BUDGET")
+    print(f"  📊 90-DAY CONVERSION FORECAST (DAY-BY-DAY)")
     print(f"  {'='*70}")
     print(f"\n  Daily Budget: ${recommended_budget:,.2f}")
     print(f"  Daily Spend: ${result['optimal_budget']:,.2f}")
@@ -365,57 +354,42 @@ def analyze_your_data(file_path: str):
     print(f"      Shows OBSERVED conversions (what you'll see initially).")
     print(f"      With lifetime attribution, these will grow ~{1/avg_training_maturity:.1f}x over time.\n")
 
-    for idx, row in monthly_forecast.iterrows():
-        print(f"  {row['month_name']}:")
-        print(f"    Days in month: {row['days']}")
-        print(f"    Total spend: ${row['cost']:,.2f}")
-        print(f"    NEW conversions (from new ads): {row['new_conversions']:.0f}")
-        print(f"    Revenue (from new ads): ${row['revenue_from_new_ads']:,.2f}")
-        print(f"    Profit (from new ads): ${row['profit_from_new_ads']:,.2f}")
-        print(f"    NC ROAS: {row['roas']:.2f}")
-        print()
+    # Show day-by-day predictions
+    print(f"  {'Date':<12} {'Spend':<12} {'Predicted Conversions':<25}")
+    print(f"  {'-'*12} {'-'*12} {'-'*25}")
 
-    # Calculate when purchases actually occur (vs attributed)
-    # With lifetime attribution, NEW conversions attributed to future dates
-    # will actually occur (as purchases) over months/years
-    # For inventory planning, we need to estimate WHEN purchases happen
+    for idx, row in future_df.iterrows():
+        print(f"  {row['date'].strftime('%Y-%m-%d'):<12} ${row['cost']:>10,.2f}  {row['new_conversions']:>10.1f}")
 
-    print(f"  ⏱️  LIFETIME ATTRIBUTION & INVENTORY PLANNING:")
-    print(f"  The NEW conversions above are attributed to when ads run (future dates).")
-    print(f"  But actual PURCHASES happen over time after the ad impression:")
-    print(f"\n  Purchase Timing Estimate (when NEW purchases actually occur):")
+    print(f"  {'-'*12} {'-'*12} {'-'*25}")
+    print(f"  {'TOTAL':<12} ${total_spend:>10,.2f}  {total_new_conversions:>10.1f}")
+    print()
 
-    # Approximate distribution: 40% in first 30 days, 30% in next 60 days, 30% over months/years
-    immediate_pct = 0.40  # 40% of purchases happen relatively soon
-    medium_pct = 0.30     # 30% happen in next 2-3 months
-    longterm_pct = 0.30   # 30% happen over many months/years
-
-    for idx, row in monthly_forecast.iterrows():
-        new_conv = row['new_conversions']
-        immediate_purchases = new_conv * immediate_pct
-        medium_purchases = new_conv * medium_pct
-        longterm_purchases = new_conv * longterm_pct
-
-        print(f"\n  {row['month_name']} - NEW ads → {new_conv:.0f} conversions (attributed):")
-        print(f"    ~{immediate_purchases:.0f} purchases in first 30 days (~{immediate_pct*100:.0f}%)")
-        print(f"    ~{medium_purchases:.0f} purchases in next 60-90 days (~{medium_pct*100:.0f}%)")
-        print(f"    ~{longterm_purchases:.0f} purchases over many months (~{longterm_pct*100:.0f}%)")
-
-    # Total summary
-    total_spend = monthly_forecast['cost'].sum()
-    total_new_conversions = monthly_forecast['new_conversions'].sum()
-    total_revenue = monthly_forecast['revenue_from_new_ads'].sum()
-    total_profit = monthly_forecast['profit_from_new_ads'].sum()
-    avg_roas = total_revenue / total_spend
+    # Monthly summary
+    monthly_summary = future_df.groupby('month_name').agg({
+        'cost': 'sum',
+        'new_conversions': 'sum'
+    }).reset_index()
+    monthly_summary['days'] = future_df.groupby('month_name').size().values
+    monthly_summary['avg_conversions_per_day'] = monthly_summary['new_conversions'] / monthly_summary['days']
 
     print(f"\n  {'='*70}")
-    print(f"  📊 3-MONTH TOTALS (from NEW ads):")
+    print(f"  📊 MONTHLY SUMMARY")
+    print(f"  {'='*70}")
+    for idx, row in monthly_summary.iterrows():
+        print(f"  {row['month_name']}:")
+        print(f"    Days: {row['days']}")
+        print(f"    Total spend: ${row['cost']:,.2f}")
+        print(f"    Total conversions: {row['new_conversions']:.1f}")
+        print(f"    Avg conversions/day: {row['avg_conversions_per_day']:.1f}")
+        print()
+
+    print(f"\n  {'='*70}")
+    print(f"  📊 90-DAY TOTALS (from NEW ads):")
     print(f"  {'='*70}")
     print(f"  Total spend: ${total_spend:,.2f}")
-    print(f"  Total NEW conversions: {total_new_conversions:.0f} (observed level)")
-    print(f"  Total revenue: ${total_revenue:,.2f}")
-    print(f"  Total profit: ${total_profit:,.2f}")
-    print(f"  Average NC ROAS: {avg_roas:.2f}")
+    print(f"  Total NEW conversions: {total_new_conversions:.1f} (observed level)")
+    print(f"  Average conversions/day: {total_new_conversions/90:.1f}")
     print(f"  {'='*70}\n")
 
     # Sanity check: Compare to historical performance
@@ -441,19 +415,11 @@ def analyze_your_data(file_path: str):
         print(f"\n  ✓ Forecast looks reasonable compared to historical performance")
     print()
 
-    # Inventory recommendation (for NEW conversions only)
-    immediate_inventory = total_new_conversions * immediate_pct * 1.2  # 20% safety buffer
-
-    print(f"  📦 INVENTORY RECOMMENDATION (for NEW conversions):")
-    print(f"  For next 3 months of NEW ads, prepare approximately:")
-    print(f"  - {immediate_inventory:.0f} units for immediate fulfillment (first 30 days)")
-    print(f"    (Includes 20% safety buffer)")
-    print(f"  - Additional {total_new_conversions * medium_pct:.0f} units over next 60-90 days")
-    print(f"  - Remaining {total_new_conversions * longterm_pct:.0f} units will be needed over longer term")
-    print(f"\n  Total NEW conversions from NEW ads: {total_new_conversions:.0f} units")
-    print(f"      (This is OBSERVED level - will mature to ~{total_new_conversions/avg_training_maturity:.0f} over time)")
-    print(f"\n  ⚠️  IMPORTANT: You'll ALSO need inventory for ongoing conversions from")
-    print(f"      historical ads (not shown here). Add ~30-50% buffer for those.")
+    print(f"  ⚠️  LIFETIME ATTRIBUTION REMINDER:")
+    print(f"  These {total_new_conversions:.0f} conversions are OBSERVED level")
+    print(f"  With lifetime attribution, they'll mature to ~{total_new_conversions/avg_training_maturity:.0f} over time")
+    print(f"\n  Also remember: You'll see ongoing conversions from historical ads")
+    print(f"  (not shown in this forecast)")
 
     # =========================================================================
     # STEP 7: Visualize Results
@@ -591,34 +557,26 @@ def analyze_your_data(file_path: str):
      - Based on best available data (limited by 121 days)
      - Accounts for {avg_spend_efficiency*100:.0f}% spend efficiency
 
-  2. 3-MONTH FORECAST (NEW conversions from NEW ads):
-     - Expected spend: ${total_spend:,.2f}
-     - Expected NEW conversions: {total_new_conversions:.0f} (OBSERVED level)
-     - Expected revenue: ${total_revenue:,.2f}
-     - Expected profit: ${total_profit::.2f}
-     - Expected NC ROAS: {avg_roas:.2f}
+  2. 90-DAY FORECAST (NEW conversions from NEW ads):
+     - Expected daily spend: ${result['optimal_budget']:,.2f}
+     - Expected daily conversions: {total_new_conversions/90:.1f} conversions/day
+     - Total 90-day conversions: {total_new_conversions:.1f} conversions
+     - Total 90-day spend: ${total_spend:,.2f}
 
      📝 Note: These are OBSERVED conversions (what you'll see initially).
         With lifetime attribution, these grow to ~{total_new_conversions/avg_training_maturity:.0f}
         mature conversions over time. Forecast adjusted to show realistic initial numbers,
         not inflated "eventual mature" numbers.
 
-  3. INVENTORY PLANNING (for NEW conversions):
-     - Prepare ~{immediate_inventory:.0f} units for immediate fulfillment (30 days)
-     - Additional ~{total_new_conversions * medium_pct:.0f} units over next 60-90 days
-     - Remaining ~{total_new_conversions * longterm_pct:.0f} units over longer term
-     - Total NEW conversions: {total_new_conversions:.0f} units
+     📊 See daily_conversion_forecast.csv for day-by-day predictions
 
-     ⚠️  IMPORTANT: ALSO need inventory for ongoing conversions from
-         historical ads! Add 30-50% buffer for those ongoing conversions.
-
-  4. MONITOR CLOSELY:
+  3. MONITOR CLOSELY:
      - Track actual spend daily (not just budget)
      - Watch NC ROAS (currently {current_avg_roas:.2f})
      - Conversions will grow over time (lifetime attribution!)
      - Compare monthly actuals to forecast
 
-  5. BE PATIENT:
+  4. BE PATIENT:
      - Don't judge results after 30 days (way too early!)
      - Wait 90-180 days to see true impact
      - Remember: conversions attributed over months/years
@@ -712,34 +670,41 @@ def analyze_your_data(file_path: str):
     print(f"   - ROAS_OPTIMIZATION_GUIDE.md")
 
     # Save forecast to CSV for easy reference
-    forecast_export = monthly_forecast.copy()
-    forecast_export['daily_budget'] = recommended_budget
-    forecast_export['daily_spend'] = result['optimal_budget']
-    forecast_export = forecast_export[['month_name', 'days', 'daily_budget', 'daily_spend',
-                                       'cost', 'new_conversions', 'revenue_from_new_ads',
-                                       'profit_from_new_ads', 'roas']]
-    # Rename columns for clarity
+    # Export daily forecast to CSV
+    forecast_export = future_df[['date', 'cost', 'new_conversions']].copy()
+    forecast_export['date'] = forecast_export['date'].dt.strftime('%Y-%m-%d')
     forecast_export = forecast_export.rename(columns={
-        'new_conversions': 'new_conversions_from_new_ads',
-        'revenue_from_new_ads': 'revenue_new_ads',
-        'profit_from_new_ads': 'profit_new_ads'
+        'date': 'forecast_date',
+        'cost': 'daily_spend',
+        'new_conversions': 'predicted_conversions'
     })
-    forecast_export.to_csv('3_month_forecast.csv', index=False)
-    print(f"\n📊 3-Month Forecast Details:")
-    print(f"   - 3_month_forecast.csv (monthly breakdown - NEW conversions only)")
-    print(f"\n   Monthly Forecast Summary (NEW conversions from NEW ads):")
-    print(forecast_export.to_string(index=False))
+    forecast_export.to_csv('daily_conversion_forecast.csv', index=False)
+
+    # Also export monthly summary
+    monthly_export = monthly_summary.copy()
+    monthly_export = monthly_export.rename(columns={
+        'month_name': 'month',
+        'cost': 'total_spend',
+        'new_conversions': 'total_conversions',
+        'days': 'days_in_month',
+        'avg_conversions_per_day': 'avg_conversions_per_day'
+    })
+    monthly_export.to_csv('monthly_conversion_summary.csv', index=False)
+
+    print(f"\n📊 Forecast Files Exported:")
+    print(f"   - daily_conversion_forecast.csv (90 days of daily predictions)")
+    print(f"   - monthly_conversion_summary.csv (monthly summary)")
+    print(f"\n   First 10 days of forecast:")
+    print(forecast_export.head(10).to_string(index=False))
 
     return {
         'recommended_budget': recommended_budget,
         'recommended_spend': result['optimal_budget'],
-        'monthly_forecast': monthly_forecast,
         'daily_forecast': future_df,
+        'monthly_summary': monthly_summary,
         'total_new_conversions': total_new_conversions,
         'total_spend': total_spend,
-        'total_revenue': total_revenue,
-        'total_profit': total_profit,
-        'avg_roas': avg_roas,
+        'avg_conversions_per_day': total_new_conversions / 90,
         'optimization_result': result
     }
 
@@ -774,11 +739,10 @@ if __name__ == '__main__':
 
   5. Review results and recommendations carefully
 
-  6. Get 3-month forecast with recommended budget:
-     - Monthly purchase predictions
-     - Inventory requirements
-     - Revenue and profit forecasts
-     - Exported to 3_month_forecast.csv
+  6. Get 90-day forecast with recommended budget:
+     - Day-by-day conversion predictions
+     - Daily and monthly summaries
+     - Exported to daily_conversion_forecast.csv and monthly_conversion_summary.csv
 
   7. Remember: With only 121 days of data, predictions are indicative!
     """)
