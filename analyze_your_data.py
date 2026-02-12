@@ -270,6 +270,22 @@ def analyze_your_data(file_path: str):
 
     print(f"\n  Creating 90-day forecast starting from {reference_date.date() + timedelta(days=1)}...")
     print(f"  Using recommended daily spend: ${result['optimal_budget']:,.2f}")
+
+    # DEBUG: Show what the model learned from
+    print(f"\n  🔍 DEBUG - Understanding Model Training:")
+    df_train_subset = df[df['days_since_ad'] >= min_days_old].copy()
+    print(f"  - Training data: {len(df_train_subset)} days (ages {min_days_old}+ days)")
+    print(f"  - Average OBSERVED conversions in training data: {df_train_subset['conversions'].mean():.1f}/day")
+    print(f"  - Average maturity of training data: {df_train_subset['estimated_maturity'].mean()*100:.0f}%")
+    if 'conversions_mature_estimate' in df_train_subset.columns:
+        print(f"  - Average MATURE conversion estimate: {df_train_subset['conversions_mature_estimate'].mean():.1f}/day")
+
+    # What does current data show?
+    print(f"\n  🔍 Current Performance (for comparison):")
+    print(f"  - Recent 30 days avg conversions: {df.tail(30)['conversions'].mean():.1f}/day")
+    print(f"  - Overall avg conversions: {df['conversions'].mean():.1f}/day")
+    print(f"  - Overall avg spend: ${df['cost'].mean():,.2f}/day")
+
     print(f"\n  ℹ️  IMPORTANT CLARIFICATION:")
     print(f"  This forecast shows NEW conversions from NEW ads you'll run in next 3 months.")
     print(f"  With lifetime attribution, you'll ALSO continue getting conversions from")
@@ -289,10 +305,35 @@ def analyze_your_data(file_path: str):
     # Prepare features for prediction
     X_forecast = future_df[['cost', 'ROAS']].copy()
 
-    # Predict conversions (these are NEW conversions from NEW ads)
+    # Predict conversions - these will be MATURE estimates if we trained with use_mature_estimates=True
     predictions = trained_model.predict(X_forecast)
-    future_df['new_conversions'] = predictions  # NEW conversions from future ads
-    future_df['revenue_from_new_ads'] = predictions * conversion_value
+
+    # DEBUG: Show what model predicts
+    print(f"\n  🔍 Model Prediction:")
+    print(f"  - Model predicts: {predictions.mean():.1f} conversions/day")
+    print(f"  - At spend level: ${result['optimal_budget']:,.2f}/day")
+
+    # ISSUE: The model was trained on MATURE conversion estimates
+    # So it predicts MATURE conversions (what they'll eventually be)
+    # But for a forecast, we probably want INITIAL conversions (what you'll see immediately)
+
+    # Calculate adjustment factor: convert from mature estimate back to observed
+    # Average maturity of training data tells us the scaling factor
+    avg_training_maturity = df[df['days_since_ad'] >= min_days_old]['estimated_maturity'].mean()
+
+    # If we trained on mature estimates, scale predictions back down to observed levels
+    # QUESTION: Should we show mature (eventual) or observed (immediate) conversions?
+    # For now, let's show OBSERVED (immediate) conversions, not mature
+    predictions_observed = predictions * avg_training_maturity  # Scale back to observed level
+
+    print(f"\n  ⚠️  MATURITY ADJUSTMENT:")
+    print(f"  - Model trained on data ~{avg_training_maturity*100:.0f}% mature")
+    print(f"  - Model predicts MATURE conversions: {predictions.mean():.1f}/day")
+    print(f"  - Adjusted to OBSERVED (initial) conversions: {predictions_observed.mean():.1f}/day")
+    print(f"  - (These will grow to mature level over time with lifetime attribution)")
+
+    future_df['new_conversions'] = predictions_observed  # Use observed, not mature
+    future_df['revenue_from_new_ads'] = predictions_observed * conversion_value
     future_df['profit_from_new_ads'] = future_df['revenue_from_new_ads'] - future_df['cost']
 
     # Add month information
@@ -317,7 +358,9 @@ def analyze_your_data(file_path: str):
     print(f"  Daily Spend: ${result['optimal_budget']:,.2f}")
     print(f"  Target NC ROAS: 3.5\n")
     print(f"  ⚠️  NOTE: These are NEW conversions from NEW ads in forecast period.")
-    print(f"      Does NOT include ongoing conversions from historical ads.\n")
+    print(f"      Does NOT include ongoing conversions from historical ads.")
+    print(f"      Shows OBSERVED conversions (what you'll see initially).")
+    print(f"      With lifetime attribution, these will grow ~{1/avg_training_maturity:.1f}x over time.\n")
 
     for idx, row in monthly_forecast.iterrows():
         print(f"  {row['month_name']}:")
@@ -366,11 +409,34 @@ def analyze_your_data(file_path: str):
     print(f"  📊 3-MONTH TOTALS (from NEW ads):")
     print(f"  {'='*70}")
     print(f"  Total spend: ${total_spend:,.2f}")
-    print(f"  Total NEW conversions: {total_new_conversions:.0f}")
+    print(f"  Total NEW conversions: {total_new_conversions:.0f} (observed level)")
     print(f"  Total revenue: ${total_revenue:,.2f}")
     print(f"  Total profit: ${total_profit:,.2f}")
     print(f"  Average NC ROAS: {avg_roas:.2f}")
     print(f"  {'='*70}\n")
+
+    # Sanity check: Compare to historical performance
+    print(f"  📊 SANITY CHECK - Does this make sense?")
+    daily_forecast_conv = total_new_conversions / 90
+    daily_forecast_spend = total_spend / 90
+    historical_conv_per_dollar = df['conversions'].sum() / df['cost'].sum()
+    forecast_conv_per_dollar = total_new_conversions / total_spend
+
+    print(f"  - Forecast: {daily_forecast_conv:.1f} conversions/day at ${daily_forecast_spend:,.2f}/day")
+    print(f"  - Historical avg: {df['conversions'].mean():.1f} conversions/day at ${df['cost'].mean():,.2f}/day")
+    print(f"  - Historical: {historical_conv_per_dollar:.3f} conversions per $1 spent")
+    print(f"  - Forecast: {forecast_conv_per_dollar:.3f} conversions per $1 spent")
+
+    if abs(forecast_conv_per_dollar / historical_conv_per_dollar - 1) > 0.5:
+        print(f"\n  ⚠️  WARNING: Forecast efficiency differs significantly from historical!")
+        print(f"     This might indicate:")
+        print(f"     - Model trained on incomplete data (all your data is <75% mature)")
+        print(f"     - Recommended spend very different from historical")
+        print(f"     - Data quality issues")
+        print(f"     - Take forecast as rough estimate only")
+    else:
+        print(f"\n  ✓ Forecast looks reasonable compared to historical performance")
+    print()
 
     # Inventory recommendation (for NEW conversions only)
     immediate_inventory = total_new_conversions * immediate_pct * 1.2  # 20% safety buffer
@@ -382,6 +448,7 @@ def analyze_your_data(file_path: str):
     print(f"  - Additional {total_new_conversions * medium_pct:.0f} units over next 60-90 days")
     print(f"  - Remaining {total_new_conversions * longterm_pct:.0f} units will be needed over longer term")
     print(f"\n  Total NEW conversions from NEW ads: {total_new_conversions:.0f} units")
+    print(f"      (This is OBSERVED level - will mature to ~{total_new_conversions/avg_training_maturity:.0f} over time)")
     print(f"\n  ⚠️  IMPORTANT: You'll ALSO need inventory for ongoing conversions from")
     print(f"      historical ads (not shown here). Add ~30-50% buffer for those.")
 
@@ -523,10 +590,15 @@ def analyze_your_data(file_path: str):
 
   2. 3-MONTH FORECAST (NEW conversions from NEW ads):
      - Expected spend: ${total_spend:,.2f}
-     - Expected NEW conversions: {total_new_conversions:.0f}
+     - Expected NEW conversions: {total_new_conversions:.0f} (OBSERVED level)
      - Expected revenue: ${total_revenue:,.2f}
-     - Expected profit: ${total_profit:,.2f}
+     - Expected profit: ${total_profit::.2f}
      - Expected NC ROAS: {avg_roas:.2f}
+
+     📝 Note: These are OBSERVED conversions (what you'll see initially).
+        With lifetime attribution, these grow to ~{total_new_conversions/avg_training_maturity:.0f}
+        mature conversions over time. Forecast adjusted to show realistic initial numbers,
+        not inflated "eventual mature" numbers.
 
   3. INVENTORY PLANNING (for NEW conversions):
      - Prepare ~{immediate_inventory:.0f} units for immediate fulfillment (30 days)
