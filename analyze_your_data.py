@@ -163,18 +163,21 @@ def analyze_your_data(file_path: str):
         has_actual_spend=True  # You have actual spend data!
     )
 
-    # Use min_days_old=60 (instead of ideal 180)
-    # This is a compromise given limited data
+    # Train on data at least 180 days old (more complete conversions)
     min_days_old = 60
 
     print(f"\n  Training on data at least {min_days_old} days old...")
     print(f"  (Ideally would use 180+ days, but working with what we have)")
+    print(f"\n  🔑 IMPORTANT: Training on OBSERVED conversions (not mature estimates)")
+    print(f"     - This predicts what you'll actually SEE (observed conversions)")
+    print(f"     - NOT what they'll eventually become (mature conversions)")
+    print(f"     - Better for realistic forecasting")
 
     try:
         trained_model = model.train_model(
             df,
             min_days_old=min_days_old,
-            use_mature_estimates=True,
+            use_mature_estimates=False,  # ← CHANGED: Use OBSERVED, not mature!
             optimize_params=True
         )
 
